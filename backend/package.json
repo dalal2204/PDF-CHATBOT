@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [],
   "author": "",
@@ -13,8 +15,11 @@
   "dependencies": {
     "@google/genai": "^2.27.0",
     "@qdrant/js-client-rest": "^1.19.0",
+    "cloudinary": "^2.11.0",
+    "cors": "^2.8.6",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
+    "mongoose": "^9.11.0",
     "multer": "^2.4.0",
     "pdf-parse": "^1.1.1"
   }

@@ -3,6 +3,6 @@ node_modules/
 .env.*
 !.env.example
 
-server/uploads/
-client/dist/
+backend/uploads/
+frontend/dist/
 dist/
