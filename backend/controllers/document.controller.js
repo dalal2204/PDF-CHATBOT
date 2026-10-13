@@ -13,7 +13,7 @@ exports.get = async (req, res) => {
 exports.create = async (req, res) => {
   if (!req.file) throw new ApiError(400, 'Select a PDF to upload.');
   const document = await service.create(req.file);
-  res.status(201).json({ success: true, data: document });
+  res.status(202).json({ success: true, data: document });
 };
 exports.remove = async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) throw new ApiError(400, 'Invalid document ID.');

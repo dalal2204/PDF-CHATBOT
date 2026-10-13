@@ -20,6 +20,7 @@ export default function App() {
   const fileInput = useRef(null)
   const bottomRef = useRef(null)
   const selected = documents.find((document) => document._id === selectedId)
+  const selectedStatus = selected?.status
 
   const refreshDocuments = useCallback(async () => {
     setLoadingDocs(true)
@@ -39,14 +40,25 @@ export default function App() {
 
   useEffect(() => { refreshDocuments() }, [refreshDocuments])
   useEffect(() => {
+    const timer = window.setInterval(async () => {
+      if (!documents.some((document) => document.status === 'processing')) return
+      try {
+        const result = await getDocuments()
+        setDocuments(result.data)
+      } catch { /* The next poll can recover from a temporary API error. */ }
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [documents])
+  useEffect(() => {
     if (!selectedId) { setMessages([]); return }
+    if (selectedStatus !== 'ready') { setMessages([]); setLoadingChat(false); return }
     let active = true
     setLoadingChat(true)
     getChat(selectedId).then((result) => { if (active) { setMessages(result.data); setError('') } })
       .catch((cause) => { if (active) setError(cause.message) })
       .finally(() => { if (active) setLoadingChat(false) })
     return () => { active = false }
-  }, [selectedId])
+  }, [selectedId, selectedStatus])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [messages, asking])
 
   function selectDocument(id) {
@@ -65,7 +77,7 @@ export default function App() {
       const result = await uploadDocument(file)
       await refreshDocuments()
       selectDocument(result.data._id)
-      setNotice(`${file.name} is ready to chat with.`)
+      setNotice(`${file.name} is uploaded and processing. It will be ready to chat with shortly.`)
     } catch (cause) { setError(cause.message) }
     finally { setUploading(false) }
   }
@@ -131,14 +143,14 @@ export default function App() {
           <div className="chat-stage">
             {!selected ? (
               <div className="welcome-card"><div className="welcome-icon"><Glyph>✳</Glyph></div><span className="welcome-kicker">YOUR PERSONAL READING SPACE</span><h2>Make every document<br />easier to understand.</h2><p>Upload a PDF and ask anything about it. Your conversations stay with each document, ready whenever you return.</p><button className="primary-button" type="button" onClick={() => fileInput.current?.click()} disabled={uploading}>{uploading ? <><span className="spinner light" /> Adding document…</> : <>＋ &nbsp;Add your first PDF</>}</button><span className="upload-hint">PDF · Up to 20 MB</span></div>
-            ) : loadingChat ? <div className="chat-loading"><span className="spinner" /> Loading your conversation…</div> : messages.length === 0 ? (
+            ) : selected.status === 'processing' ? <div className="chat-loading"><span className="spinner" /> Preparing your document…</div> : selected.status === 'failed' ? <div className="chat-loading">This document could not be processed. {selected.processingError || 'Delete it and upload it again.'}</div> : loadingChat ? <div className="chat-loading"><span className="spinner" /> Loading your conversation…</div> : messages.length === 0 ? (
               <div className="first-question"><div className="assistant-avatar">✳</div><div><span className="message-label">PAPERTRAIL ASSISTANT</span><h2>Your document is ready.</h2><p>Ask a question, explore a detail, or get a summary. I’ll look for the answer in <strong>{selected.name}</strong>.</p><div className="suggestions"><button type="button" onClick={() => setQuestion('Summarize the main points of this document.')}>Summarize the main points <span>↗</span></button><button type="button" onClick={() => setQuestion('What are the most important details I should know?')}>What should I know? <span>↗</span></button></div></div></div>
             ) : (
               <div className="message-list">{messages.map((message) => <article className="exchange" key={message._id}><div className="user-message"><span className="user-avatar">You</span><div><span className="message-label">YOU <i>·</i> {shortDate(message.createdAt)}</span><p>{message.question}</p></div></div><div className="assistant-message"><div className="assistant-avatar">✳</div><div className="answer-content"><span className="message-label">PAPERTRAIL ASSISTANT</span><p>{message.answer}</p>{message.sources?.length > 0 && <details className="sources"><summary>Based on {message.sources.length} document {message.sources.length === 1 ? 'excerpt' : 'excerpts'}</summary><div className="source-list">{message.sources.map((source, index) => <blockquote key={`${message._id}-${source.chunkIndex}`}>Excerpt {index + 1}: {source.preview}</blockquote>)}</div></details>}</div></div></article>)}<div ref={bottomRef} /></div>
             )}
           </div>
 
-          {selected && <div className="composer-wrap"><form className="composer" onSubmit={handleAsk}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={2000} rows={1} placeholder={`Ask anything about ${selected.name}…`} aria-label="Your question" disabled={asking || uploading} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form.requestSubmit() } }} /><div className="composer-bottom"><span><kbd>↵</kbd> to send <span className="key-divider">·</span> <kbd>⇧ ↵</kbd> for a new line</span><button className="send-button" type="submit" disabled={!question.trim() || asking} aria-label="Send question">{asking ? <span className="spinner light" /> : <Glyph>↑</Glyph>}</button></div></form><div className="composer-foot"><span>Answers are grounded in your selected document.</span><span>{question.length}/2000</span></div></div>}
+          {selected?.status === 'ready' && <div className="composer-wrap"><form className="composer" onSubmit={handleAsk}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={2000} rows={1} placeholder={`Ask anything about ${selected.name}…`} aria-label="Your question" disabled={asking || uploading} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form.requestSubmit() } }} /><div className="composer-bottom"><span><kbd>↵</kbd> to send <span className="key-divider">·</span> <kbd>⇧ ↵</kbd> for a new line</span><button className="send-button" type="submit" disabled={!question.trim() || asking} aria-label="Send question">{asking ? <span className="spinner light" /> : <Glyph>↑</Glyph>}</button></div></form><div className="composer-foot"><span>Answers are grounded in your selected document.</span><span>{question.length}/2000</span></div></div>}
           {asking && <div className="typing-indicator"><span className="assistant-avatar">✳</span><span className="typing-dots"><i /><i /><i /></span><span>Finding the relevant passages…</span></div>}
         </section>
         <footer className="page-footer"><span>Thoughtful answers, grounded in your documents.</span><span>AI can make mistakes. Verify important details in the source.</span></footer>

@@ -55,7 +55,7 @@
 
 
 
-const { randomUUID } = require('crypto');
+const { createHash } = require('crypto');
 const qdrant = require('../config/qdrant');
 const ApiError = require('../utils/ApiError');
 
@@ -159,7 +159,9 @@ exports.storeChunks = async (
   await ensureCollection();
 
   const points = chunks.map((text, index) => ({
-    id: randomUUID(),
+    // Stable point IDs make repeated ingestion upserts idempotent per document chunk.
+    id: createHash('sha256').update(`${documentId}:${index}`).digest('hex').slice(0, 32)
+      .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5'),
 
     vector: embeddings[index],
 

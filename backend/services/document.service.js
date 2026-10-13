@@ -1,9 +1,8 @@
 const Document = require('../models/document.model');
 const Chat = require('../models/chat.model');
-const pdf = require('./pdf.service');
 const cloudinary = require('./cloudinary.service');
-const embedding = require('./embedding.service');
 const vectors = require('./qdrant.service');
+const ingestionQueue = require('../queues/document-ingestion.queue');
 
 exports.create = async (file) => {
   if (!file.buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
@@ -17,26 +16,26 @@ exports.create = async (file) => {
     document = await Document.create({
       name: file.originalname, originalName: file.originalname, mimeType: file.mimetype,
       size: file.size, cloudinaryUrl: remote.secure_url, cloudinaryPublicId: remote.public_id,
-      cloudinaryResourceType: remote.resource_type || 'raw', status: 'processing',
+      cloudinaryResourceType: remote.resource_type || 'raw',
+      cloudinaryDeliveryType: remote.type || 'upload', status: 'processing',
     });
-    const { pageCount, chunks } = await pdf.extractAndChunk(file.buffer);
-    const embeddings = [];
-    for (const chunk of chunks) embeddings.push(await embedding.embed(chunk));
-    await vectors.storeChunks(document.id, chunks, embeddings);
-    document.pageCount = pageCount;
-    document.chunkCount = chunks.length;
-    document.status = 'ready';
-    await document.save();
+    await ingestionQueue.add('ingest-document', { documentId: document.id }, {
+      jobId: document.id,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 1000 },
+    });
     return document;
   } catch (error) {
     if (document) {
-      document.status = 'failed';
-      document.processingError = error.statusCode && error.statusCode < 500
-        ? error.message
-        : 'Document processing failed. Please remove it and try uploading again.';
-      await Promise.allSettled([vectors.deleteDocument(document.id), document.save()]);
-    } else {
-      await cloudinary.deletePdf(remote.public_id, remote.resource_type || 'raw').catch(() => {});
+      await Document.updateOne({ _id: document.id }, {
+        $set: { status: 'failed', processingError: 'The document could not be queued for processing. Please retry the upload.' },
+      }).catch(() => {});
+    }
+    try {
+      await cloudinary.deletePdf(remote.public_id, remote.resource_type || 'raw');
+      if (document) await Document.findByIdAndDelete(document.id);
+    } catch {
+      // Keep a failed record linked to the Cloudinary file so cleanup can be retried.
     }
     throw error;
   }
